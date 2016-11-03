@@ -1,0 +1,28 @@
+<div class="post">
+  <div class="post-heading">
+    <div class="post-title">
+      {{p.subject}}
+    </div>
+
+    <div class="post-date">
+      {{p.created.strftime("%b %d, %Y")}}
+    </div>
+  </div>
+
+  <div class="post-content">
+    {{p._render_text | safe}}
+  </div>
+
+  <div class="previous-comment">
+    {{c._render_body | safe}}
+  </div>
+
+  <div class="add-comment">
+    <a>Like</a>
+  <form method="post">
+    <textarea class="comment-textbox" name="comment" placeholder="Add a comment...">{{comment}}</textarea>
+    <input type="submit">
+  </form>
+  </div>
+
+</div>
