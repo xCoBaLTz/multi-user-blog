@@ -10,7 +10,7 @@ from google.appengine.ext import db
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
-                               autoescape = True)
+                                autoescape = True)
 
 secret = 'thisisverysecret'
 
@@ -114,22 +114,39 @@ class User(db.Model):
 def blog_key(name = 'default'):
     return db.Key.from_path('blogs', name)
 
+def user_key(group="default"):
+    return db.Key.from_path('users', name)
+
+def post_key(post_id):
+    return db.Key.from_path('Post', int(post_id), parent=blog_key())
+
+def like_dup(ent, login_id, post_id):
+    key = post_key(post_id)
+    like_exists = db.GqlQuery("SELECT * "
+                              "FROM " + ent +
+                              " WHERE like_user_id = '" + login_id +
+                              "' AND ANCESTOR IS :1", key).get()
+    return like_exists
+
+
 class Post(db.Model):
+    author_id = db.StringProperty(required=True)
+    author_name = db.StringProperty(required=True)
     subject = db.StringProperty(required = True)
     content = db.TextProperty(required = True)
     created = db.DateTimeProperty(auto_now_add = True)
     last_modified = db.DateTimeProperty(auto_now = True)
-    user = db.ReferenceProperty(User, collection_name = 'created_by')
 
     def render(self):
         self._render_text = self.content.replace('\n', '<br>')
         return render_str("post.html", p = self)
 
 class Comment(db.Model):
-    post = db.ReferenceProperty(Post, collection_name = 'comment')
-    user = db.ReferenceProperty(User, collection_name = 'created_by')
+    author_id = db.StringProperty(required = True)
+    author_name = db.StringProperty(required = True)
     body = db.TextProperty(required = True)
     created = db.DataTimeProperty(auto_now_add = True)
+    last_modified = db.DateTimeProperty(auto_now=True)
 
     def render(self):
         self._render_body = self.body.replace('\n', '<br>')
@@ -138,19 +155,20 @@ class Comment(db.Model):
 class BlogFront(BlogHandler):
     def get(self):
         posts = db.GqlQuery("select * from Post order by created desc limit 10")
-        comments = db.GqlQuery("select * from Comment order by created desc")
-        self.render('front.html', posts = posts, comments = comments)
+        #comments = db.GqlQuery("select * from Comment order by created desc")
+        self.render('front.html', posts = posts)
 
-    def post(self):
-        if not self.user:
-            self.redirect("/signup")
-        else:
-            body = self.request.get('comment')
-
-        if body:
-            userid = User(key().id() = )
-
-
+    #def post(self):
+    #    if not self.user:
+    #        self.redirect("/signup")
+    #    else:
+    #        body = self.request.get('comment')
+    #        if body:
+    #            user = User(id = user.key().id())
+    #            user.put()
+    #            post = Post(id = post.key().id())
+    #            post.put()
+    #            Comment(user = user, post = post, body = body).put()
 
 class PostPage(BlogHandler):
     def get(self, post_id):
@@ -178,12 +196,14 @@ class NewPost(BlogHandler):
         content = self.request.get('content')
 
         if subject and content:
-            p = Post(parent = blog_key(), subject = subject, content = content, created_by = created_by)
+            p = Post(parent = blog_key(), subject = subject, content = content,
+                    created_by = created_by)
             p.put()
             self.redirect('/blog/%s' % str(p.key().id()))
         else:
             error = "subject and content, please!"
-            self.render("newpost.html", subject=subject, content=content, error=error)
+            self.render("newpost.html", subject=subject, content=content,
+                        error=error)
 
 
 USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
@@ -284,5 +304,6 @@ app = webapp2.WSGIApplication([('/blog/?', BlogFront),
                                ('/login', Login),
                                ('/logout', Logout),
                                ('/welcome', Welcome),
+                               ('/newcomment', NewComment)
                                ],
                               debug=True)
