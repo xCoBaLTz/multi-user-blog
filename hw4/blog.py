@@ -215,27 +215,49 @@ class NewPost(BlogHandler):
 
     def post(self):
         if not self.user:
-            self.redirect('/')
+            self.redirect('/login')
         created_by = str(self.user.key().id())
         subject = self.request.get('subject')
         content = self.request.get('content')
         key = db.Key.from_path('User', int(created_by), parent=user_key())
         user = db.get(key)
-        if subject and content and user_id:
+        if subject and content and created_by:
             p = Post(parent = blog_key(), subject = subject, content = content,
                     author_name = user.name, created_by = created_by)
             p.put()
             post_id = str(p.key().id())
-            self.redirect('/post-%s' % str(p.key().id()))
+            self.redirect('/post-%s' % post_id)
         else:
-            error = "subject and content, please!"
+            error = "Subject and Content, please!"
             self.render("newpost.html", subject=subject, content=content,
                         error=error)
 
 class NewComment(BlogHandler):
     def get(self):
         if not self.user:
-            self.redirect('')                     
+            self.redirect('/login')
+        else:
+            post_id = self.request.get('post_id')
+            self.render("newcomment.html", post_id=post_id)
+
+    def post(self):
+        if not self.user:
+            self.redirect('/login')
+        post_id = self.request.get('post_id')
+        created_by = str(self.user.key().id())
+        content = self.request.get('content')
+        key = db.Key.from_path('User', int(created_by), parent=user_key())
+        user = db.get(key)
+        if subject and content and created_by:
+            c = Comment(parent = post_key(post_id), subject = subject, content = content,
+                    author_name = user.name, created_by = created_by)
+            c.put()
+            comment_id = str(c.key().id())
+            self.redirect('/comment-%s?post_id=%s' % (comment_id, post_id))
+        else:
+            error = "Content, please!"
+            self.render("newcomment.html", content=content, post_id=post_id,
+                        error=error)
 
 USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
 def valid_username(username):
