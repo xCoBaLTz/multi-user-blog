@@ -196,15 +196,49 @@ class BlogFront(BlogHandler):
                     self.redirect('/')
 
 class PostPage(BlogHandler):
-    def get(self, post_id):
-        key = db.Key.from_path('Post', int(post_id), parent=blog_key())
+    def get(self, login_id):
+        url_str = self.request.path
+        post_id = url_str.rsplit('post-', 1)[1]
+        key = post_key(post_id)
         post = db.get(key)
 
-        if not post:
-            self.error(404)
-            return
+        kinds = metadata.get_kinds()
 
-        self.render("permalink.html", post = post)
+        if u'Comment' in kinds:
+            comments = db.GqlQuery("SELECT * FROM Comment WHERE ANCESTOR IS :1", key)
+        else:
+            comments=""
+        self.render("permalink.html", post=post, comments=comments)
+
+    def post(self, login_id):
+        if not self.user:
+            self.redirect('/login')
+        else:
+            edit_post_id = self.reqeust.get('get_post_id')
+            edit_comment_id = self.request.get('get_post_id')
+            comment_post_id = self.request.get('comment_post_id')
+            like_post_id = self.request.get('like_post_id')
+            if commment_post_id:
+                post_id = comment_post_id
+                self.redirect('/newcomment?post_id=' + post_id)
+            if edit_post_id:
+                post_id = edit_post_id
+                self.redirect('/editpost?post_id=' + post_id)
+            if edit_comment_id:
+                url_str = self.request.path
+                post_id = url_str.rsplit('post-', 1)[1]
+                comment_id = edit_comment_id
+                self.redirect('/editcomment?post_id=%s&comment_id=%s' % (post_id, comment_id))
+            if like_post_id:
+                post_id = like_post_id
+                user_id = self.read_secure_cookie('user_id')
+                if not like_dup('PostLike', user_id, post_id):
+                    like = PostLike(like_user_id=user_id, parent=post_key(post_id))
+                    like.put()
+                    self.redirect('/post-%s' % post_id)
+
+class CommentPage(BlogHandler):
+        
 
 class NewPost(BlogHandler):
     def get(self):
