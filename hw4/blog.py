@@ -174,18 +174,9 @@ class BlogFront(BlogHandler):
         self.render('front.html', posts = posts)
 
     def post(self):
-        auth_error = True
-        if self.read_secure_cookie('user_id'):
-            auth_error = False
+        if not self.user:
+            self.redirect('/signup')
         else:
-            auth_error = True
-        userid = self.read_secure_cookie('user_id')
-        if not User.by_id(int(userid)):
-            auth_error = False
-        else:
-            auth_error = True
-
-        if not auth_error:
             edit_post_id = self.request.get('edit_post_id')
             comment_post_id = self.request.get('comment_post_id')
             like_post_id = self.request.get('like_post_id')
@@ -203,8 +194,6 @@ class BlogFront(BlogHandler):
                                     parent=post_key(post_id))
                     like.put()
                     self.redirect('/')
-        else:
-            self.redirect('/signup')
 
 class PostPage(BlogHandler):
     def get(self, post_id):
@@ -236,13 +225,17 @@ class NewPost(BlogHandler):
             p = Post(parent = blog_key(), subject = subject, content = content,
                     author_name = user.name, created_by = created_by)
             p.put()
-            post_id = str(post.key().id())
+            post_id = str(p.key().id())
             self.redirect('/post-%s' % str(p.key().id()))
         else:
             error = "subject and content, please!"
             self.render("newpost.html", subject=subject, content=content,
                         error=error)
 
+class NewComment(BlogHandler):
+    def get(self):
+        if not self.user:
+            self.redirect('')                     
 
 USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
 def valid_username(username):
