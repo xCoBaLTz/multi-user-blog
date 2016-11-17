@@ -58,9 +58,9 @@ class BlogHandler(webapp2.RequestHandler):
         uid = self.read_secure_cookie('user_id')
         self.user = uid and User.by_id(int(uid))
 
-def render_post(response, post):
-    response.out.write('<b>' + post.subject + '</b><br>')
-    response.out.write(post.content)
+#def render_post(response, post):
+#    response.out.write('<b>' + post.subject + '</b><br>')
+#    response.out.write(post.content)
 
 
 ##### user stuff
@@ -137,9 +137,25 @@ class Post(db.Model):
     created = db.DateTimeProperty(auto_now_add = True)
     last_modified = db.DateTimeProperty(auto_now = True)
 
-    def render(self):
+    def post_likes(self, post_id):
+        kinds = metadata.get_kinds()
+        if u'PostLike' in kinds:
+            likes = db.GqlQuery("SELECT * FROM PostLike WHERE ANCESTOR IS :1", post_key(post_id)).count()
+        else:
+            likes = 0
+        return likes
+
+    def render(self, login_id, post_id):
+        likes = self.post_likes(post_id)
         self._render_text = self.content.replace('\n', '<br>')
-        return render_str("post.html", p = self)
+        return render_str("post.html", p = self, login_id = login_id, likes = likes)
+
+    def post_like_dup(self, login_id, post_id):
+        exists = like_dup('PostLike', login_id, post_id)
+        return exists
+
+class PostLike(db.Model):
+    like_user_id = db.StringProperty(required=True)
 
 class Comment(db.Model):
     author_id = db.StringProperty(required = True)
@@ -148,27 +164,47 @@ class Comment(db.Model):
     created = db.DataTimeProperty(auto_now_add = True)
     last_modified = db.DateTimeProperty(auto_now=True)
 
-    def render(self):
+    def render(self, login_id):
         self._render_body = self.body.replace('\n', '<br>')
-        return render_str("post.html", c = self)
+        return render_str("post.html", login_id=login_id, c = self)
 
 class BlogFront(BlogHandler):
     def get(self):
         posts = db.GqlQuery("select * from Post order by created desc limit 10")
-        #comments = db.GqlQuery("select * from Comment order by created desc")
         self.render('front.html', posts = posts)
 
-    #def post(self):
-    #    if not self.user:
-    #        self.redirect("/signup")
-    #    else:
-    #        body = self.request.get('comment')
-    #        if body:
-    #            user = User(id = user.key().id())
-    #            user.put()
-    #            post = Post(id = post.key().id())
-    #            post.put()
-    #            Comment(user = user, post = post, body = body).put()
+    def post(self):
+        auth_error = True
+        if self.read_secure_cookie('user_id'):
+            auth_error = False
+        else:
+            auth_error = True
+        userid = self.read_secure_cookie('user_id')
+        if not User.by_id(int(userid)):
+            auth_error = False
+        else:
+            auth_error = True
+
+        if not auth_error:
+            edit_post_id = self.request.get('edit_post_id')
+            comment_post_id = self.request.get('comment_post_id')
+            like_post_id = self.request.get('like_post_id')
+            if comment_post_id:
+                post_id = comment_post_id
+                self.redirect('/newcomment?post_id=' + post_id)
+            if edit_post_id:
+                post_id = edit_post_id
+                self.redirect('/editpost?post_id=' + post_id)
+            if like_post_id:
+                post_id = like_post_id
+                user_id = self.read_secure_cookie('usercookie')
+                if not like_dup('PostLike', user_id, post_id):
+                    like = PostLike(like_user_id=user_id,
+                                    parent=post_key(post_id))
+                    like.put()
+                    self.redirect('/')
+        else:
+            self.redirect('/signup')
 
 class PostPage(BlogHandler):
     def get(self, post_id):
@@ -190,16 +226,18 @@ class NewPost(BlogHandler):
 
     def post(self):
         if not self.user:
-            self.redirect('/blog')
+            self.redirect('/')
         created_by = str(self.user.key().id())
         subject = self.request.get('subject')
         content = self.request.get('content')
-
-        if subject and content:
+        key = db.Key.from_path('User', int(created_by), parent=user_key())
+        user = db.get(key)
+        if subject and content and user_id:
             p = Post(parent = blog_key(), subject = subject, content = content,
-                    created_by = created_by)
+                    author_name = user.name, created_by = created_by)
             p.put()
-            self.redirect('/blog/%s' % str(p.key().id()))
+            post_id = str(post.key().id())
+            self.redirect('/post-%s' % str(p.key().id()))
         else:
             error = "subject and content, please!"
             self.render("newpost.html", subject=subject, content=content,
@@ -267,7 +305,7 @@ class Register(Signup):
             u.put()
 
             self.login(u)
-            self.redirect('/blog')
+            self.redirect('/')
 
 class Login(BlogHandler):
     def get(self):
@@ -280,7 +318,7 @@ class Login(BlogHandler):
         u = User.login(username, password)
         if u:
             self.login(u)
-            self.redirect('/blog')
+            self.redirect('/')
         else:
             msg = 'Invalid login'
             self.render('login-form.html', error = msg)
@@ -288,7 +326,7 @@ class Login(BlogHandler):
 class Logout(BlogHandler):
     def get(self):
         self.logout()
-        self.redirect('/blog')
+        self.redirect('/')
 
 class Welcome(BlogHandler):
     def get(self):
@@ -297,13 +335,18 @@ class Welcome(BlogHandler):
         else:
             self.redirect('/signup')
 
-app = webapp2.WSGIApplication([('/blog/?', BlogFront),
-                               ('/blog/([0-9]+)', PostPage),
-                               ('/blog/newpost', NewPost),
+app = webapp2.WSGIApplication([('/', BlogFront),
+                               ('/post-([0-9]+)', PostPage),
+                               ('/newpost', NewPost),
+                               ('/comment-([0-9]+)',CommentPost),
+                               ('/newcomment', NewComment),
+                               ('/deletepost', DeletePost),
+                               ('/deletecomment', DeleteComment),
+                               ('/editpost', EditPost),
+                               ('/editcomment', EditComment),
                                ('/signup', Register),
                                ('/login', Login),
                                ('/logout', Logout),
-                               ('/welcome', Welcome),
-                               ('/newcomment', NewComment)
+                               ('/welcome', Welcome)
                                ],
                               debug=True)
