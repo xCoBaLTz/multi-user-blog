@@ -10,7 +10,7 @@ from google.appengine.ext import db
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
-                                autoescape = True)
+                               autoescape = True)
 
 secret = 'thisisverysecret'
 
@@ -58,9 +58,9 @@ class BlogHandler(webapp2.RequestHandler):
         uid = self.read_secure_cookie('user_id')
         self.user = uid and User.by_id(int(uid))
 
-#def render_post(response, post):
-#    response.out.write('<b>' + post.subject + '</b><br>')
-#    response.out.write(post.content)
+def render_post(response, post):
+    response.out.write('<b>' + post.subject + '</b><br>')
+    response.out.write(post.content)
 
 
 ##### user stuff
@@ -114,21 +114,6 @@ class User(db.Model):
 def blog_key(name = 'default'):
     return db.Key.from_path('blogs', name)
 
-def user_key(group="default"):
-    return db.Key.from_path('users', name)
-
-def post_key(post_id):
-    return db.Key.from_path('Post', int(post_id), parent=blog_key())
-
-def like_dup(ent, login_id, post_id):
-    key = post_key(post_id)
-    like_exists = db.GqlQuery("SELECT * "
-                              "FROM " + ent +
-                              " WHERE like_user_id = '" + login_id +
-                              "' AND ANCESTOR IS :1", key).get()
-    return like_exists
-
-
 class Post(db.Model):
     author_id = db.StringProperty(required=True)
     author_name = db.StringProperty(required=True)
@@ -137,31 +122,15 @@ class Post(db.Model):
     created = db.DateTimeProperty(auto_now_add = True)
     last_modified = db.DateTimeProperty(auto_now = True)
 
-    def post_likes(self, post_id):
-        kinds = metadata.get_kinds()
-        if u'PostLike' in kinds:
-            likes = db.GqlQuery("SELECT * FROM PostLike WHERE ANCESTOR IS :1", post_key(post_id)).count()
-        else:
-            likes = 0
-        return likes
-
-    def render(self, login_id, post_id):
-        likes = self.post_likes(post_id)
+    def render(self):
         self._render_text = self.content.replace('\n', '<br>')
-        return render_str("post.html", p = self, login_id = login_id, likes = likes)
-
-    def post_like_dup(self, login_id, post_id):
-        exists = like_dup('PostLike', login_id, post_id)
-        return exists
-
-class PostLike(db.Model):
-    like_user_id = db.StringProperty(required=True)
+        return render_str("post.html", p = self)
 
 class Comment(db.Model):
     author_id = db.StringProperty(required = True)
     author_name = db.StringProperty(required = True)
     body = db.TextProperty(required = True)
-    created = db.DataTimeProperty(auto_now_add = True)
+    created = db.DateTimeProperty(auto_now_add = True)
     last_modified = db.DateTimeProperty(auto_now=True)
 
     def render(self, login_id):
@@ -170,75 +139,19 @@ class Comment(db.Model):
 
 class BlogFront(BlogHandler):
     def get(self):
-        posts = db.GqlQuery("select * from Post order by created desc limit 10")
+        posts = Post.all().order('-created')
         self.render('front.html', posts = posts)
 
-    def post(self):
-        if not self.user:
-            self.redirect('/signup')
-        else:
-            edit_post_id = self.request.get('edit_post_id')
-            comment_post_id = self.request.get('comment_post_id')
-            like_post_id = self.request.get('like_post_id')
-            if comment_post_id:
-                post_id = comment_post_id
-                self.redirect('/newcomment?post_id=' + post_id)
-            if edit_post_id:
-                post_id = edit_post_id
-                self.redirect('/editpost?post_id=' + post_id)
-            if like_post_id:
-                post_id = like_post_id
-                user_id = self.read_secure_cookie('usercookie')
-                if not like_dup('PostLike', user_id, post_id):
-                    like = PostLike(like_user_id=user_id,
-                                    parent=post_key(post_id))
-                    like.put()
-                    self.redirect('/')
-
 class PostPage(BlogHandler):
-    def get(self, login_id):
-        url_str = self.request.path
-        post_id = url_str.rsplit('post-', 1)[1]
-        key = post_key(post_id)
+    def get(self, post_id):
+        key = db.Key.from_path('Post', int(post_id), parent=blog_key())
         post = db.get(key)
-
-        kinds = metadata.get_kinds()
-
-        if u'Comment' in kinds:
-            comments = db.GqlQuery("SELECT * FROM Comment WHERE ANCESTOR IS :1", key)
-        else:
-            comments=""
-        self.render("permalink.html", post=post, comments=comments)
-
-    def post(self, login_id):
-        if not self.user:
-            self.redirect('/login')
-        else:
-            edit_post_id = self.reqeust.get('get_post_id')
-            edit_comment_id = self.request.get('get_post_id')
-            comment_post_id = self.request.get('comment_post_id')
-            like_post_id = self.request.get('like_post_id')
-            if commment_post_id:
-                post_id = comment_post_id
-                self.redirect('/newcomment?post_id=' + post_id)
-            if edit_post_id:
-                post_id = edit_post_id
-                self.redirect('/editpost?post_id=' + post_id)
-            if edit_comment_id:
-                url_str = self.request.path
-                post_id = url_str.rsplit('post-', 1)[1]
-                comment_id = edit_comment_id
-                self.redirect('/editcomment?post_id=%s&comment_id=%s' % (post_id, comment_id))
-            if like_post_id:
-                post_id = like_post_id
-                user_id = self.read_secure_cookie('user_id')
-                if not like_dup('PostLike', user_id, post_id):
-                    like = PostLike(like_user_id=user_id, parent=post_key(post_id))
-                    like.put()
-                    self.redirect('/post-%s' % post_id)
-
-class CommentPage(BlogHandler):
-        
+        if not post:
+            self.error(404)
+            return
+        comments = Comment.all().filter('post_id =', post_id).order('-last_modified')
+        #comments = db.GqlQuery("SELECT * FROM Comment WHERE post_id = %s ORDER BY last_modified", post_id)
+        self.render("permalink.html", post = post, comments = comments)
 
 class NewPost(BlogHandler):
     def get(self):
@@ -249,49 +162,53 @@ class NewPost(BlogHandler):
 
     def post(self):
         if not self.user:
-            self.redirect('/login')
+            self.redirect('/')
+
         created_by = str(self.user.key().id())
         subject = self.request.get('subject')
         content = self.request.get('content')
-        key = db.Key.from_path('User', int(created_by), parent=user_key())
+        key = db.Key.from_path('User', int(created_by), parent=users_key())
         user = db.get(key)
+        name = user.name
+
         if subject and content and created_by:
             p = Post(parent = blog_key(), subject = subject, content = content,
-                    author_name = user.name, created_by = created_by)
+            author_name = name, author_id = created_by)
             p.put()
-            post_id = str(p.key().id())
-            self.redirect('/post-%s' % post_id)
+            self.redirect('/post-%s' % str(p.key().id()))
         else:
-            error = "Subject and Content, please!"
-            self.render("newpost.html", subject=subject, content=content,
-                        error=error)
+            error = "Subject and content, please!"
+            self.render("newpost.html", subject=subject, content=content, error=error)
 
 class NewComment(BlogHandler):
     def get(self):
-        if not self.user:
-            self.redirect('/login')
-        else:
+        if self.user:
             post_id = self.request.get('post_id')
             self.render("newcomment.html", post_id=post_id)
+        else:
+            self.redirect("/login")
 
     def post(self):
         if not self.user:
-            self.redirect('/login')
-        post_id = self.request.get('post_id')
+            self.redirect('/')
+
+        post_id = self.request.get(post_id)
         created_by = str(self.user.key().id())
-        content = self.request.get('content')
-        key = db.Key.from_path('User', int(created_by), parent=user_key())
-        user = db.get(key)
-        if subject and content and created_by:
-            c = Comment(parent = post_key(post_id), subject = subject, content = content,
-                    author_name = user.name, created_by = created_by)
+        body = self.request.get('body')
+        key = db.Key.from_path('User', int(created_by), parent=users_key())
+        user =  db.get(key)
+        name = user.name
+
+        if body and post_id and created_by:
+            c = Comment(parent = post_key(post_id), body = body,
+            author_id = created_by, author_name = name)
             c.put()
             comment_id = str(c.key().id())
-            self.redirect('/comment-%s?post_id=%s' % (comment_id, post_id))
+            self.redirect('/post-%s' % post_id)
         else:
-            error = "Content, please!"
-            self.render("newcomment.html", content=content, post_id=post_id,
-                        error=error)
+            error = "Please include a body."
+            self.render("newcomment.html", body = body, post_id = post_id,
+            error = error)
 
 USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
 def valid_username(username):
@@ -377,25 +294,12 @@ class Logout(BlogHandler):
         self.logout()
         self.redirect('/')
 
-class Welcome(BlogHandler):
-    def get(self):
-        if self.user:
-            self.render('welcome.html', username = self.user.name)
-        else:
-            self.redirect('/signup')
-
 app = webapp2.WSGIApplication([('/', BlogFront),
                                ('/post-([0-9]+)', PostPage),
-                               ('/newpost', NewPost),
-                               ('/comment-([0-9]+)',CommentPost),
                                ('/newcomment', NewComment),
-                               ('/deletepost', DeletePost),
-                               ('/deletecomment', DeleteComment),
-                               ('/editpost', EditPost),
-                               ('/editcomment', EditComment),
+                               ('/newpost', NewPost),
                                ('/signup', Register),
                                ('/login', Login),
-                               ('/logout', Logout),
-                               ('/welcome', Welcome)
+                               ('/logout', Logout)
                                ],
                               debug=True)

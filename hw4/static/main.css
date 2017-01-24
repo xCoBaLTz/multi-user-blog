@@ -103,17 +103,3 @@ input[type=submit] {
     margin-top: 5px;
 }
 
-.comment-textbox{
-  height: 50px;
-  width: 800px;
-  max-width: 800px;
-}
-
-.post-comment a{
-  color: gray;
-  text-decoration: none;
-}
-
-.post-comment a:hover{
-  text-decoration: underline;
-}
